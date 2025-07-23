@@ -189,23 +189,52 @@ class NN(object):
 # Backpropagation
 
     def backpropagate(self):
+        # empty dictionary to store gradients.
         derivatives = {}
-        dZ = self.output - self.y
-        assert dZ.shape == (self.num_labels, self.m)
-        dW = np.dot(dZ, self.layers["a" + str(self.L-2)].T) / self.m
-        db = np.sum(dZ, axis=1, keepdims=True) / self.m
-        dAPrev = np.dot(self.parameters["w" + str(self.L-1)].T, dZ)
-        derivatives["dW" + str(self.L-1)] = dW
-        derivatives["db" + str(self.l-1)] = db
 
+        # calculates the output layer error.
+        # this is the gradient of the cost function with respect to the final layer activations.
+        dZ = self.output - self.y
+
+        # checks the shape of the layer error.
+        assert dZ.shape == (self.num_labels, self.m)
+
+        # weight gradient calculation for the output layer.
+        # multiplies the output error by the transpose of the previous layer's activations. .
+        # normalised by the number of examples .
+        dW = np.dot(dZ, self.layers["a" + str(self.L-2)].T) / self.m
+
+        # bias gradient calculation for the output layer.
+        # averages the error across all examples.
+        db = np.sum(dZ, axis=1, keepdims=True) / self.m
+
+        # gradient calculation to propagate to the previous layer.
+        dAPrev = np.dot(self.parameters["w" + str(self.L-1)].T, dZ)
+
+        # the gradients are stored in the derivatives dictionary 
+        derivatives["dW" + str(self.L-1)] = dW
+        derivatives["db" + str(self.L-1)] = db
+
+        # we iterate backwards through the hidden layers 
         for l in range(self.L-2, 0, -1):
+            # calculates the gradients for the error at the current layer
+            # it combines the error from the next layer with the derivative of the current layer's activation function
             dZ = dAPrev * derivative(self.activation, self.layers["z" + str(l)])
+
+            # calculates the weight gradients 
             dW = 1. / self.m * np.dot(dZ, self.layers["a" + str(l-1)].T)
-            db = 1. / self.m * np.sum(dZ, axis=1, keepdims=true)
+
+            # calculates the bias gradients
+            db = 1. / self.m * np.sum(dZ, axis=1, keepdims=True)
             if l > 1:
+                # calculates the gradient for the  previous layer
+                # (if not at the first hidden layer)
                 dAPrev = np.dot(self.parameters["w" + str(l)].T, (dZ))
-            derivatives["dw" + str(l)] = dW
+            # all gradients are stored in the derivatives dictionary 
+            derivatives["dW" + str(l)] = dW
             derivatives["db" + str(l)] = db
+        
+        # the helper function calculates the derivatives of various activation functions based on their name.
         self.derivatives = derivatives
 
         return self.derivatives  
