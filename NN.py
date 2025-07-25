@@ -236,38 +236,71 @@ class NN(object):
         
         # the helper function calculates the derivatives of various activation functions based on their name.
         self.derivatives = derivatives
-
         return self.derivatives  
     
     
 
 # Fitting, accuracy and predictions
 
+    # implements the standart gradeient descent training algorithm for neural networks.
+    # iteratively adjusts network parameters to minimize the loss function over a specified number of epochs.
     def fit(self, lr=0.01, epochs = 1000):
+        # prepares the tracking strucutre to monitor the loss trajectory.
         self.costs = []
+
+        # the network weights and biases are initialized with small random with small random values by calling this function. 
         self.initialize_parameters()
+        
+        # records performance metrics for both training and test datasets.
         self.accuracies = {"train": [], "test": []}
+
+        # the core training loop uses tqdm to display a visual progress bar with a blue colour.
+        # providing a real-time feedback during the training process.
         for epoch in tqdm(range(epochs), colour="BLUE"):
+            # forward propagation
+            # it computes predictions by passing input date through the network
+            # returns both the loss value and cached layer activations.
             cost, cache = self.forward()
             self.costs.append(cost)
+
+            # backpropagation
+            # calculates gradients for all parameters with respect to the cost function.
             derivatives = self.backpropagate()
+            
+            # the nested loop performs gradient descent by updating all the weights and biases
             for layer in range(1, self.L):
+
+                #lr is the elarning rate which controls the step size of these updates
                 self.parameters["w"+str(layer)] = self.parameters["w"+str(layer)] - lr * derivatives["dW" + str(layer)]
                 self.parameters["b"+str(layer)] = self.parameters["b"+str(layer)] - lr * derivatives["db" + str(layer)]            
-            train_accuracy = self.accuracy(self.x, self.y)
+           
+           # used to test the accuracy on both training and test sets
+            train_accuracy = self.accuracy(self.X, self.y)
             test_accuracy = self.accuracy(self.X_test, self.y_test)
+
+            # very ten epochs, a status update is printed showing the current epoch number, cost value and training accuracy
             if epoch % 10 == 0:
                 print(f"Epoch: {epoch:3d} | Cost: {cost:.3f} | Accuracy: {train_accuracy:.3f}")
+
+            # metrics are stored for future reference    
             self.accuracies["train"].append(train_accuracy)
             self.accuracies["test"].append(test_accuracy)
         print("Training Terminated")
 
 
+    # implements the forward propagation process for making predictions with a trained neural network.
     def predict(self,x):
+
+        # retrieves the network parameters
         params = self.parameters
+        #determines the number of layers
         n_layers = self.L - 1
+        # initialises the values list with the input data as the first element    
         values = [x]
+        # to propagate the input through each hidden layer
+        # for each layer l
         for l in range(1, n_layers):
+            # computes the weighted sum z by multiplying the weights with the previous layer's activations and adding the bias
             z = np.dot(params["w" + str(l)], values[l-1]) + params["b" + str(l)]
             a = eval(self.activation)(z)
             values.append(a)
