@@ -298,14 +298,23 @@ class NN(object):
         # initialises the values list with the input data as the first element    
         values = [x]
         # to propagate the input through each hidden layer
-        # for each layer l
+        # for each hidden layer in the network
         for l in range(1, n_layers):
-            # computes the weighted sum z by multiplying the weights with the previous layer's activations and adding the bias
+            # computes the weighted sum z by multiplying the current layer's weights with the activations from the previous layer and adding the bias
             z = np.dot(params["w" + str(l)], values[l-1]) + params["b" + str(l)]
+            
+            # applies the activation function to introduce non-linearity, using python's eval() function to dynamically call the appropriate activation function
             a = eval(self.activation)(z)
             values.append(a)
         z = np.dot(params["w" + str(n_layers)], values[n_layers - 1]) + params["b" + str(n_layers)]
+
+        # the softmax function applied to the activation function, which converts the raw scores into probability distributions across classes.
+        # it first stablizes the calculation by subtraccting the max value to prevent numerical overflow
+        # then it computes the exponent of each value and normalizes them to sum to 1 across the class dimension
         a = softmax(z)
+
+        # determines the predicted class by taking the index with the highest probability using argmax
+        # handles both single examples and batches of examples by checking the input shape and returning and returning the appropriate format of predictions.
         if x.shape[1] > 1:
             ans = np.argmax(a, axis = 0)
         else:
@@ -313,14 +322,27 @@ class NN(object):
         return ans
     
 
+    # the method evaluates the model's performance by comparing predictions agains ground truth labels.
     def accuracy(self, x, y):
+        # calls predict(x) to get predicted class indices
+        # compares these predictions with the true labels
+        # it converts one-hot encoded labels to indices
+        # calculates the percentage of correct predictions
         P = self.predict(x)
         return sum(np.equal(P, np.argmax(y, axis = 0))) / y.shape[1] * 100
     
+
+    # the pcikle model method saves the trained model to disk using python's pickle module.
+    # opens a file with a name based on the input parameter
+    # serializes the entirte model object for later retieval 
     def pickle_model(self, name: str):
         with open("fitted model_" + name + ".pickle", "wb") as modelFile:
             pickle.dump(self, modelFile)
 
+
+    # creates a bar chart showing the distribution of predictions across classes
+    # extracts unique prediction values and their counts
+    # displays the frequency of each predicted class
     def plot_counts(self):
         counts = np.unique(np.argmax(self.output, axis = 0), return_counts = True)
         plt.bar(counts[0], counts[1], color = "navy")
@@ -329,7 +351,11 @@ class NN(object):
         plt.title("Distribution of predictions")
         plt.show()
 
-    
+
+    # visualizes the cost/loss over training epochs
+    # plots the cost values that are stored in self.costs
+    # includes the learning rate and final cost in the title
+    # useful for monitoring convergence and learning rate effectiveness
     def plot_cost(self, lr):
         plt.figure(figsize = (8,4))
         plt.plot(np.arange(0, len(self.costs)), self.costs, lw = 1, color = "orange")
@@ -341,6 +367,12 @@ class NN(object):
         plt.show()
 
     
+    # compares the training and testing acccuracy over time
+    # plots both the accuracy curves on the same graph
+    # includes a legend to distinguish between training and testing data
+    # it helps identify overfitting (when training accuracy far exceeds testing accuracy)
+    # final accuracy values for both training and test datasets are annotated.
+    # top and right spines or borders of the plot are removed
     def plot_accuracies(self, lr):
         acc = self.accuracies
         fig = plt.figure(figsize = (6,4))
@@ -349,6 +381,14 @@ class NN(object):
         ax.plot(acc["test"], label = "test")
         plt.legend(loc = "lower right")
         ax.set_title("Accuracy")
+        ax.annotate(f"Train: {acc['train'][-1]: .2f}", (len(acc["train"])+4, acc["train"][-1]+2), color="blue")
+        ax.annotate(f"Test: {acc['test'][-1]: .2f}", (len(acc["test"])+4, acc["test"][-1]-2), color="orange")
+        ax.spines["right"].set_visible(False)
+        ax.spines["top"].set_visible(False)
+        plt.show()
+
+    def __str__(self):
+        return str(self.architecture)
         
 
 
