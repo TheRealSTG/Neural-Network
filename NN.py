@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from typing import List
 import pickle
 from tqdm import tqdm
+from tabulate import tabulate
 
 from sklearn.datasets import fetch_openml
 mnist = fetch_openml(name='mnist_784')
@@ -34,7 +35,7 @@ print(test_img.shape)
 # MNIST images are 28x28 pixels, so the side length is 28
 # but they are stored as a flat array of 784 pixels
 # taking sqrt of this and convering to int gives the original side length of 28
-side_length = int(np.sqrt(test_img.shape))
+side_length = int(np.sqrt(test_img.shape[0]))
 
 # transforms the One-dimensional array into a two-dimensional matrix 
 # this represents the image in its original 2D form.
@@ -74,8 +75,9 @@ def leaky_relu(z: np.ndarray) -> np.ndarray:
     return np.where(z > 0, z, z * 0.01)
 
 def softmax(z: np.ndarray) -> np.ndarray:
-    e = np.exp(z - np.max(z))
-    return e / np.sum(e, axis=0)
+    # Subtract max for numerical stability
+    e = np.exp(z - np.max(z, axis=0, keepdims=True))
+    return e / np.sum(e, axis=0, keepdims=True)
 
 # Scales the input data to the [0,1] range
 def normalize(x: np.ndarray) -> np.ndarray:
@@ -91,10 +93,9 @@ def derivative(function_name: str, z: np.ndarray) -> np.ndarray:
     if function_name == "sigmoid":
         return sigmoid(z) * (1 - sigmoid(z))
     if function_name == "tanh":
-        return 1 - np.square(tanh(z))
+        return 1 - np.power(tanh(z), 2)
     if function_name == "relu":
-        y = (z > 0) * 1
-        return y
+        return np.where(z > 0, 1, 0)
     if function_name == "leaky_relu":
         return np.where(z > 0, 1, 0.01)
     return "No such activation function"
@@ -103,14 +104,14 @@ def derivative(function_name: str, z: np.ndarray) -> np.ndarray:
 ## Implementing the Neural Network
 class NN(object):
     def __init__(self, X: np.ndarray, y: np.ndarray, X_test: np.ndarray, y_test: np.ndarray, activation: str, num_labels: int, architecture: List[int]):
-        # Normalise the training data in range of 0 to 1
-        self.X = normalize(X)
-        # assertion is performed to verify that the normalisation worked correctly
-        assert np.all((self.X >= 0) & (self.X <= 1))
-
-        # create copies of the input data to avoid modifying the original data
+        # Create copies first, then normalize
         self.X, self.X_test = X.copy(), X_test.copy()
-        self.y, self.y_test =y.copy(), y_test.copy()
+        self.X = normalize(self.X)
+        self.X_test = normalize(self.X_test)  # Also normalize test data
+
+        # Add these two lines to store y and y_test
+        self.y = y
+        self.y_test = y_test
 
         # define the dictionary to store the results of activation during forward propagation
         self.layers = {}
@@ -137,184 +138,150 @@ class NN(object):
         assert self.X.shape == (self.num_input_features, self.m)
         assert self.y.shape == (self.num_labels, self.m)
 
+        self.costs = []  # Add this line - you're using it in fit() but never initialized it
+        self.train_accuracies = []  # Add this line
+        self.test_accuracies = []  # Add this line
+        self.initialize_parameters()  # Add this line
+
     # Initializes the parameters (weights and biases) for each layer in the neural network, except the input layer
     def initialize_parameters(self):
-        for i in range(1, self.L):
-            print(f"Initializing parameters for layer: {i}.")
-            # creates a matrix of random numbers drawn from a standard normal distribution (mean 0, variance 1)
-            # scales these values by 0.01 to keep initial weights small, which helps prevents exploding gradients
-            # the dimensions are set to match the number of nodes in the current layer and the previous layer
-            # each neuron in the current layer gets one weight for each neuron in the previous layer
-            # stores the weights in the parameters dictionary with keys "w1", "w2 
-            self.parameters["w" + str(i)] = np.random.randn(self.architecture[i], self.architecture[i-1]) * 0.01
-            # creates a column vector of zeroes with dimensions matching the number of neurons in the current layer
-            # uses zeroes initialization for biases as a practice
-            # stores the biases in the parameters dictionary with keys "b1", "b2", etc.
-            self.parameters["b" + str(i)] = np.zeros((self.architecture[i], 1))
+        # Use architecture as is, without adding dimensions again
+        for l in range(1, self.L):
+            # Different initialization based on activation function
+            if self.activation == "relu" or self.activation == "leaky_relu":
+                # He initialization for ReLU variants
+                self.parameters[f"W{l}"] = np.random.randn(self.architecture[l], self.architecture[l-1]) * np.sqrt(2./self.architecture[l-1])
+            else:
+                # Xavier/Glorot initialization for sigmoid and tanh
+                self.parameters[f"W{l}"] = np.random.randn(self.architecture[l], self.architecture[l-1]) * np.sqrt(1./self.architecture[l-1])
+            
+            self.parameters[f"b{l}"] = np.zeros((self.architecture[l], 1))
 
 # Feedforward
 
     def forward(self):
-        params = self.parameters
-        self.layers["a0"] = self.X
-        # iterates through the hidden layers of the network except the input and output layer.
-        for l in range(1, self.L - 1):
-            # Linear Transformation: performs the weighted sum plus bias.
-            self.layers["z" + str(1)] = np.dot(params["w" + str(l),
-                                                      self.layers["a" + str(l - 1)]]) + params["b" + str(l)]
-            # Activation: appliies the softmax activation. 
-            # The eval function dynamically calls the appropriate activation function based on the string stored in self.activation.
-            self.layers["a" + str(l)] = eval(self.activation)(self.layers["z" + str(l)])
-            assert self.layers["a" + str(l)].shape == (self.architecture[l], self.m)
-        # Linear Transformation for the output layer.
-        self.layers["z" + str(self.L-1)] = np.dot(params["w" + str(self.L-1)],
-                                                  self.layers["a" + str(self.L-2)]) + params["b" + str(self.L-1)]
-        # Applies Softmax Activation specifically to the output layer, appropriate for classification tasks.
-        self.layers["a" + str(self.L-1)] = softmax(self.layers["z" + str(self.L-1)])
-        # The result is stored in self.output for easy access.
-        self.output = self.layers["a" + str(self.L-1)]
-        # The assertion checks that the output shape matches expectations.
-        assert self.output.shape == (self.num_labels, self.m)
-        # All columns sum to 1 ( a property of softmax outputs)
-        assert all([s for s in np.sum(self.output, axis = 1)])
-
-        # The cross-entropy cost is calculated with this.
-        # The small costant prevents taking the logarithm of zero.
-        cost = - np.sum(self.y * np.log(self.output + 0.000000001))
-
-        # The method returns both the cost and all layer activations.
-        return cost, self.layers
+        cache = {}
+        A = self.X  # Input features
+        L = len(self.parameters) // 2  # Number of layers
+        
+        # Forward propagation
+        for l in range(1, L+1):
+            Z = np.dot(self.parameters[f"W{l}"], A) + self.parameters[f"b{l}"]
+            cache[f"Z{l}"] = Z
+            
+            # Apply activation function (except for output layer)
+            if l == L:  # Output layer
+                A = softmax(Z)
+            else:  # Hidden layers
+                if self.activation == "sigmoid":
+                    A = sigmoid(Z)
+                elif self.activation == "tanh":
+                    A = tanh(Z)
+                elif self.activation == "relu":
+                    A = relu(Z)
+                elif self.activation == "leaky_relu":
+                    A = leaky_relu(Z)
+            
+            cache[f"A{l}"] = A
+        
+        # Compute cost
+        m = self.y.shape[1]
+        cost = -np.sum(self.y * np.log(A + 1e-8)) / m  # Add small epsilon for numerical stability
+        
+        return cost, cache
 
 
 # Backpropagation
 
-    def backpropagate(self):
-        # empty dictionary to store gradients.
+    def backpropagate(self, cache):
         derivatives = {}
-
-        # calculates the output layer error.
-        # this is the gradient of the cost function with respect to the final layer activations.
-        dZ = self.output - self.y
-
-        # checks the shape of the layer error.
-        assert dZ.shape == (self.num_labels, self.m)
-
-        # weight gradient calculation for the output layer.
-        # multiplies the output error by the transpose of the previous layer's activations. .
-        # normalised by the number of examples .
-        dW = np.dot(dZ, self.layers["a" + str(self.L-2)].T) / self.m
-
-        # bias gradient calculation for the output layer.
-        # averages the error across all examples.
-        db = np.sum(dZ, axis=1, keepdims=True) / self.m
-
-        # gradient calculation to propagate to the previous layer.
-        dAPrev = np.dot(self.parameters["w" + str(self.L-1)].T, dZ)
-
-        # the gradients are stored in the derivatives dictionary 
-        derivatives["dW" + str(self.L-1)] = dW
-        derivatives["db" + str(self.L-1)] = db
-
-        # we iterate backwards through the hidden layers 
-        for l in range(self.L-2, 0, -1):
-            # calculates the gradients for the error at the current layer
-            # it combines the error from the next layer with the derivative of the current layer's activation function
-            dZ = dAPrev * derivative(self.activation, self.layers["z" + str(l)])
-
-            # calculates the weight gradients 
-            dW = 1. / self.m * np.dot(dZ, self.layers["a" + str(l-1)].T)
-
-            # calculates the bias gradients
-            db = 1. / self.m * np.sum(dZ, axis=1, keepdims=True)
-            if l > 1:
-                # calculates the gradient for the  previous layer
-                # (if not at the first hidden layer)
-                dAPrev = np.dot(self.parameters["w" + str(l)].T, (dZ))
-            # all gradients are stored in the derivatives dictionary 
-            derivatives["dW" + str(l)] = dW
-            derivatives["db" + str(l)] = db
+        m = self.y.shape[1]
+        L = len(self.parameters) // 2  # Number of layers
         
-        # the helper function calculates the derivatives of various activation functions based on their name.
-        self.derivatives = derivatives
-        return self.derivatives  
-    
+        # Output layer error (using softmax derivative)
+        A_output = cache[f"A{L}"]  # Final activation (softmax output)
+        dZ = A_output - self.y  # Derivative of cross-entropy loss with softmax
+        
+        # Gradient for output layer
+        derivatives[f"dW{L}"] = (1/m) * np.dot(dZ, cache[f"A{L-1}"].T)
+        derivatives[f"db{L}"] = (1/m) * np.sum(dZ, axis=1, keepdims=True)
+        
+        # Hidden layers
+        for l in reversed(range(1, L)):
+            # Backpropagate the error
+            dA = np.dot(self.parameters[f"W{l+1}"].T, dZ)
+            
+            # Apply derivative of activation function
+            if self.activation == "sigmoid":
+                dZ = dA * derivative("sigmoid", cache[f"Z{l}"])
+            elif self.activation == "tanh":
+                dZ = dA * derivative("tanh", cache[f"Z{l}"])
+            elif self.activation == "relu":
+                dZ = dA * derivative("relu", cache[f"Z{l}"])
+            elif self.activation == "leaky_relu":
+                dZ = dA * derivative("leaky_relu", cache[f"Z{l}"])
+            
+            # Calculate gradients
+            if l > 0:
+                prev_A = cache[f"A{l-1}"] if l > 1 else self.X
+                derivatives[f"dW{l}"] = (1/m) * np.dot(dZ, prev_A.T)
+                derivatives[f"db{l}"] = (1/m) * np.sum(dZ, axis=1, keepdims=True)
+        
+        return derivatives
     
 
 # Fitting, accuracy and predictions
 
     # implements the standart gradeient descent training algorithm for neural networks.
     # iteratively adjusts network parameters to minimize the loss function over a specified number of epochs.
-    def fit(self, lr=0.01, epochs = 1000):
-        # prepares the tracking strucutre to monitor the loss trajectory.
-        self.costs = []
-
-        # the network weights and biases are initialized with small random with small random values by calling this function. 
-        self.initialize_parameters()
-        
-        # records performance metrics for both training and test datasets.
-        self.accuracies = {"train": [], "test": []}
-
-        # the core training loop uses tqdm to display a visual progress bar with a blue colour.
-        # providing a real-time feedback during the training process.
-        for epoch in tqdm(range(epochs), colour="BLUE"):
-            # forward propagation
-            # it computes predictions by passing input date through the network
-            # returns both the loss value and cached layer activations.
+    def fit(self, lr=0.01, epochs=100):
+        for i in tqdm(range(epochs)):
+            # Forward pass
             cost, cache = self.forward()
             self.costs.append(cost)
-
-            # backpropagation
-            # calculates gradients for all parameters with respect to the cost function.
-            derivatives = self.backpropagate()
             
-            # the nested loop performs gradient descent by updating all the weights and biases
-            for layer in range(1, self.L):
-
-                #lr is the elarning rate which controls the step size of these updates
-                self.parameters["w"+str(layer)] = self.parameters["w"+str(layer)] - lr * derivatives["dW" + str(layer)]
-                self.parameters["b"+str(layer)] = self.parameters["b"+str(layer)] - lr * derivatives["db" + str(layer)]            
-           
-           # used to test the accuracy on both training and test sets
-            train_accuracy = self.accuracy(self.X, self.y)
-            test_accuracy = self.accuracy(self.X_test, self.y_test)
-
-            # very ten epochs, a status update is printed showing the current epoch number, cost value and training accuracy
-            if epoch % 10 == 0:
-                print(f"Epoch: {epoch:3d} | Cost: {cost:.3f} | Accuracy: {train_accuracy:.3f}")
-
-            # metrics are stored for future reference    
-            self.accuracies["train"].append(train_accuracy)
-            self.accuracies["test"].append(test_accuracy)
+            # Backpropagation
+            derivatives = self.backpropagate(cache)
+            
+            # Update parameters
+            for l in range(1, len(self.parameters) // 2 + 1):
+                self.parameters[f"W{l}"] -= lr * derivatives[f"dW{l}"]
+                self.parameters[f"b{l}"] -= lr * derivatives[f"db{l}"]
+            
+            # Calculate and store accuracies - CHANGE HERE: calculate_accuracy → accuracy
+            if i % 10 == 0:
+                train_accuracy = self.accuracy(self.X, self.y)
+                test_accuracy = self.accuracy(self.X_test, self.y_test)
+                self.train_accuracies.append(train_accuracy)
+                self.test_accuracies.append(test_accuracy)
+                print(f"Epoch {i}/{epochs}, Cost: {cost:.4f}, Train Acc: {train_accuracy:.4f}, Test Acc: {test_accuracy:.4f}")
         print("Training Terminated")
 
 
     # implements the forward propagation process for making predictions with a trained neural network.
-    def predict(self,x):
-
+    def predict(self, x):
         # retrieves the network parameters
         params = self.parameters
-        #determines the number of layers
+        # determines the number of layers
         n_layers = self.L - 1
         # initialises the values list with the input data as the first element    
         values = [x]
         # to propagate the input through each hidden layer
         # for each hidden layer in the network
         for l in range(1, n_layers):
-            # computes the weighted sum z by multiplying the current layer's weights with the activations from the previous layer and adding the bias
-            z = np.dot(params["w" + str(l)], values[l-1]) + params["b" + str(l)]
+            # Use uppercase "W" to match initialization
+            z = np.dot(params["W" + str(l)], values[l-1]) + params["b" + str(l)]
             
-            # applies the activation function to introduce non-linearity, using python's eval() function to dynamically call the appropriate activation function
+            # applies the activation function to introduce non-linearity
             a = eval(self.activation)(z)
             values.append(a)
-        z = np.dot(params["w" + str(n_layers)], values[n_layers - 1]) + params["b" + str(n_layers)]
+        # Also use uppercase "W" here
+        z = np.dot(params["W" + str(n_layers)], values[n_layers - 1]) + params["b" + str(n_layers)]
 
-        # the softmax function applied to the activation function, which converts the raw scores into probability distributions across classes.
-        # it first stablizes the calculation by subtraccting the max value to prevent numerical overflow
-        # then it computes the exponent of each value and normalizes them to sum to 1 across the class dimension
+        # the softmax function applied to the activation function
         a = softmax(z)
 
-        # determines the predicted class by taking the index with the highest probability using argmax
-        # handles both single examples and batches of examples by checking the input shape and returning and returning the appropriate format of predictions.
+        # determines the predicted class
         if x.shape[1] > 1:
             ans = np.argmax(a, axis = 0)
         else:
@@ -336,7 +303,7 @@ class NN(object):
     # opens a file with a name based on the input parameter
     # serializes the entirte model object for later retieval 
     def pickle_model(self, name: str):
-        with open("fitted model_" + name + ".pickle", "wb") as modelFile:
+        with open("fitted_model_" + name + ".pickle", "wb") as modelFile:
             pickle.dump(self, modelFile)
 
 
@@ -344,13 +311,21 @@ class NN(object):
     # extracts unique prediction values and their counts
     # displays the frequency of each predicted class
     def plot_counts(self):
-        counts = np.unique(np.argmax(self.output, axis = 0), return_counts = True)
-        plt.bar(counts[0], counts[1], color = "navy")
+        # Run forward pass to get predictions
+        _, cache = self.forward()
+        output = cache[f"A{len(self.parameters) // 2}"]  # Get the final activation
+        
+        # Count predictions
+        predictions = np.argmax(output, axis=0)
+        unique, counts = np.unique(predictions, return_counts=True)
+        
+        plt.figure(figsize=(8, 4))
+        plt.bar(unique, counts, color="navy")
         plt.ylabel("Counts")
-        plt.xlabel("y_hat")
-        plt.title("Distribution of predictions")
+        plt.xlabel("Predicted Class")
+        plt.title("Distribution of Predictions")
+        plt.xticks(unique)
         plt.show()
-
 
     # visualizes the cost/loss over training epochs
     # plots the cost values that are stored in self.costs
@@ -374,15 +349,22 @@ class NN(object):
     # final accuracy values for both training and test datasets are annotated.
     # top and right spines or borders of the plot are removed
     def plot_accuracies(self, lr):
-        acc = self.accuracies
+        # Changed self.accuracies to use the actual attributes
         fig = plt.figure(figsize = (6,4))
         ax = fig.add_subplot(111)
-        ax.plot(acc["train"], label = "train")
-        ax.plot(acc["test"], label = "test")
+        ax.plot(self.train_accuracies, label = "train")
+        ax.plot(self.test_accuracies, label = "test")
         plt.legend(loc = "lower right")
         ax.set_title("Accuracy")
-        ax.annotate(f"Train: {acc['train'][-1]: .2f}", (len(acc["train"])+4, acc["train"][-1]+2), color="blue")
-        ax.annotate(f"Test: {acc['test'][-1]: .2f}", (len(acc["test"])+4, acc["test"][-1]-2), color="orange")
+        
+        # Make sure there are accuracy values before attempting to plot
+        if len(self.train_accuracies) > 0:
+            ax.annotate(f"Train: {self.train_accuracies[-1]: .2f}", 
+                        (len(self.train_accuracies)+4, self.train_accuracies[-1]+2), color="blue")
+        if len(self.test_accuracies) > 0:
+            ax.annotate(f"Test: {self.test_accuracies[-1]: .2f}", 
+                        (len(self.test_accuracies)+4, self.test_accuracies[-1]-2), color="orange")
+        
         ax.spines["right"].set_visible(False)
         ax.spines["top"].set_visible(False)
         plt.show()
@@ -390,5 +372,99 @@ class NN(object):
     def __str__(self):
         return str(self.architecture)
         
+# Remove the attempt to load from a pickle file
+# with open("mnist.pickle", 'rb') as f:
+#     mnist = pickle.load(f)
 
+# Use the data and labels already loaded at the top of the script
+train_test_split_no = 60000
 
+X_train = data.values[:train_test_split_no].T
+y_train = labels[:train_test_split_no].values.astype(int)
+y_train = one_hot_encode(y_train, 10).T
+
+X_test = data.values[train_test_split_no:].T
+y_test = labels[train_test_split_no:].values.astype(int)
+y_test = one_hot_encode(y_test, 10).T
+
+print(X_train.shape, X_test.shape)
+
+# Define activation configurations with optimized hyperparameters
+activation_configs = {
+    "relu": {"lr": 0.003, "epochs": 200},
+    "sigmoid": {"lr": 0.0005, "epochs": 300},
+    "tanh": {"lr": 0.0007, "epochs": 300},
+    "leaky_relu": {"lr": 0.0015, "epochs": 200}
+}
+
+# Common architecture for fair comparison
+architecture = [128, 32]
+trained_models = []
+
+# Add this function before the training loop
+def print_accuracies(models, X_train, y_train, X_test, y_test):
+    """Print a comparison table of model accuracies."""
+    headers = ["Activation", "Train Accuracy (%)", "Test Accuracy (%)"]
+    rows = []
+    
+    for model in models:
+        train_acc = model.accuracy(X_train, y_train)
+        test_acc = model.accuracy(X_test, y_test)
+        rows.append([model.activation, f"{train_acc:.2f}", f"{test_acc:.2f}"])
+    
+    print(tabulate(rows, headers=headers, tablefmt="grid"))
+
+# Add this function before the training loop
+def plot_predictions(model, X_test, y_test, rows=2, cols=4):
+    """Plot sample predictions from the model."""
+    fig, axes = plt.subplots(rows, cols, figsize=(cols*3, rows*3))
+    axes = axes.flatten()
+    
+    # Get random sample indices
+    n_samples = min(rows * cols, X_test.shape[1])
+    indices = np.random.choice(X_test.shape[1], n_samples, replace=False)
+    
+    for i, idx in enumerate(indices):
+        # Get the sample and its true label
+        sample = X_test[:, idx:idx+1]
+        true_label = np.argmax(y_test[:, idx])
+        
+        # Get model prediction
+        pred_label = model.predict(sample)
+        
+        # Reshape the sample for display
+        img = sample.reshape(28, 28).T
+        
+        # Plot
+        axes[i].imshow(img, cmap='gray')
+        axes[i].set_title(f"True: {true_label}, Pred: {pred_label}")
+        axes[i].axis('off')
+    
+    plt.tight_layout()
+    plt.show()
+
+# Train each model once with optimized parameters
+for activation, config in activation_configs.items():
+    print(f"\n\n===== Training model with {activation} activation =====")
+    print(f"Learning rate: {config['lr']}, Epochs: {config['epochs']}")
+    
+    params = [X_train, y_train, X_test, y_test, activation, 10, architecture.copy()]
+    model = NN(*params)
+    model.fit(lr=config['lr'], epochs=config['epochs'])
+    
+    # Store the trained model
+    trained_models.append(model)
+    
+    # Plot results for this activation function
+    model.plot_cost(config['lr'])
+    model.plot_accuracies(config['lr'])
+
+# Compare accuracies of all models
+print("\n===== Activation Functions Comparison =====")
+print_accuracies(trained_models, X_train, y_train, X_test, y_test)
+
+# Plot predictions for each model
+print("\n===== Sample Predictions by Activation Function =====")
+for model in trained_models:
+    print(f"\nPredictions using {model.activation} activation:")
+    plot_predictions(model, X_test, y_test, rows=2, cols=4)
