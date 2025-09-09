@@ -233,14 +233,23 @@ class NN(object):
 # Fitting, accuracy and predictions
 
     # implements the standart gradeient descent training algorithm for neural networks.
+    # for each epoch, the method performs a forward pass by calling self.forward() which computes the correct cost (loss)
+    # it caches intermediate values needed for backpropagation.
+    # the cost is then appended to a list for tracking training progess.
     # iteratively adjusts network parameters to minimize the loss function over a specified number of epochs.
+    # the accuracy is only calculated and printed every 10 epochs, which helps reduce computational overhead and clutter in the output.
     def fit(self, lr=0.01, epochs=100):
+        # provides a progress bar for a visual feedback during training.
         for i in tqdm(range(epochs)):
             # Forward pass
             cost, cache = self.forward()
             self.costs.append(cost)
             
             # Backpropagation
+            # computes the gradients of the cost with respect to the network's weights and biases.
+            # these gradients are used to update the parameters for each layer.
+            # the weights and biases are adjusted by subtracting the product of the learning rate and their respective gradients. 
+            # this step moves the parameters in the direction that reduces the loss.
             derivatives = self.backpropagate(cache)
             
             # Update parameters
@@ -248,7 +257,9 @@ class NN(object):
                 self.parameters[f"W{l}"] -= lr * derivatives[f"dW{l}"]
                 self.parameters[f"b{l}"] -= lr * derivatives[f"db{l}"]
             
-            # Calculate and store accuracies - CHANGE HERE: calculate_accuracy → accuracy
+            # Calculate and store accuracies
+            # for every 10 epochs, the method evaluates the model's accuracy on bot the training and test datasets using the accuracy method.
+            # these values are stored for later analysis and printed to provide feedback on the training progress.
             if i % 10 == 0:
                 train_accuracy = self.accuracy(self.X, self.y)
                 test_accuracy = self.accuracy(self.X_test, self.y_test)
@@ -376,11 +387,20 @@ class NN(object):
 # with open("mnist.pickle", 'rb') as f:
 #     mnist = pickle.load(f)
 
-# Use the data and labels already loaded at the top of the script
+# prepares the training and testing datasets
+
+# determines the number of samples used for training.
+# for the training set, the first 60,000 samples are selected and transposed(.T) so that each column represents a single sample,
+# this is a common format for NN input.
 train_test_split_no = 60000
 
+# input features and labels are split into training and test sets based on the train_test_split_no
+# the labels are also selected, converted to integers and then one hot encoded using the one_hot_encode function.
 X_train = data.values[:train_test_split_no].T
 y_train = labels[:train_test_split_no].values.astype(int)
+# this function transforms each label into a vector of length 10 (since there are 10 possible classes)
+# where only the index corresponding to the label is set to 1 and the rest are 0.
+# the result is then transposed so that each column matches the format of the input features
 y_train = one_hot_encode(y_train, 10).T
 
 X_test = data.values[train_test_split_no:].T
