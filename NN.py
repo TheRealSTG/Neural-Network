@@ -417,11 +417,15 @@ activation_configs = {
     "leaky_relu": {"lr": 0.0015, "epochs": 200}
 }
 
-# Common architecture for fair comparison
+# specfifies the structure of the hidden layers in the network, with two layers containing 128 and 32 neurons.
 architecture = [128, 32]
+# stores instances of models that have been trained, possibly with different activation functions or hyperparameters.
 trained_models = []
 
-# Add this function before the training loop
+# takes a list o fmodels and the training and test datasets as input.
+# prints a formatted table comparing the train and test accuracies of each model.
+# the accuracy method computes the %age of correct predictions by comparing the model's output with the true labels
+# (converting one hot encoded labels to class indices as needed)
 def print_accuracies(models, X_train, y_train, X_test, y_test):
     """Print a comparison table of model accuracies."""
     headers = ["Activation", "Train Accuracy (%)", "Test Accuracy (%)"]
@@ -434,56 +438,69 @@ def print_accuracies(models, X_train, y_train, X_test, y_test):
     
     print(tabulate(rows, headers=headers, tablefmt="grid"))
 
-# Add this function before the training loop
+# Provides a visual to inspect how well a trained model performs.
+# creates a gird of subplots using matplotlibs with each subplot displaying one test sample.
 def plot_predictions(model, X_test, y_test, rows=2, cols=4):
     """Plot sample predictions from the model."""
     fig, axes = plt.subplots(rows, cols, figsize=(cols*3, rows*3))
     axes = axes.flatten()
     
-    # Get random sample indices
+    # randomly chooses a set of indices from the test set,e nsuring the number of samples matches the grid size but does not exceed the available test data.
     n_samples = min(rows * cols, X_test.shape[1])
     indices = np.random.choice(X_test.shape[1], n_samples, replace=False)
     
+    # for each selected sample, the function extracts the image data and its true label. 
+    # the true label is determined by finding the index of the max value in the one-hot encoded label vector.
     for i, idx in enumerate(indices):
-        # Get the sample and its true label
         sample = X_test[:, idx:idx+1]
         true_label = np.argmax(y_test[:, idx])
         
-        # Get model prediction
+        # model's prediction for each sample is obtained here.
+        # returns the predicted class index.
         pred_label = model.predict(sample)
         
-        # Reshape the sample for display
+        # sample is reshaped into a 28x28 image and displayed in greyscale.
+        # each subplot is annotated with both the true and predicted lables, making it easy to spot correct and incorrect predictions visually.
         img = sample.reshape(28, 28).T
-        
-        # Plot
         axes[i].imshow(img, cmap='gray')
         axes[i].set_title(f"True: {true_label}, Pred: {pred_label}")
         axes[i].axis('off')
     
+    # used to minimize overlap and esnure that the labels, titles and axes are clearly visible.
     plt.tight_layout()
     plt.show()
 
 # Train each model once with optimized parameters
+# iterates over a dict of activation function configs
+# tains a spearate NN for each activation type.
+# for each entry it prints info about the activation function, learning ratem and number of epochs being used.
+# it then constructs parameters needed to initliaize the NN including the training an dtesting data and activation function name, number of output classes(10) and a copy of the architecture list.
+# the architecture is copied for each model to avoid unintended modifications due to Python's list mutability.
+
 for activation, config in activation_configs.items():
     print(f"\n\n===== Training model with {activation} activation =====")
     print(f"Learning rate: {config['lr']}, Epochs: {config['epochs']}")
     
     params = [X_train, y_train, X_test, y_test, activation, 10, architecture.copy()]
+
+    # a new instance of the NN class is created with these parameters.
+    # the model is trained using the specified learning rate and number of epochs by calling its fit method.
+    # this performs forward and backward passes, updates weights and tracks cost and accuracy over time.
     model = NN(*params)
     model.fit(lr=config['lr'], epochs=config['epochs'])
     
-    # Store the trained model
+    # after training, the model is added to the list for comparison.
     trained_models.append(model)
     
-    # Plot results for this activation function
+   # plots the cost (loss) curve and the accuracy curves using the model's plot_cost and plot_accuracies methods.
     model.plot_cost(config['lr'])
     model.plot_accuracies(config['lr'])
 
-# Compare accuracies of all models
+# summarizes and compare accuracies of all models that are trained on different activation functions.
 print("\n===== Activation Functions Comparison =====")
 print_accuracies(trained_models, X_train, y_train, X_test, y_test)
 
-# Plot predictions for each model
+# plot predictions for each model
 print("\n===== Sample Predictions by Activation Function =====")
 for model in trained_models:
     print(f"\nPredictions using {model.activation} activation:")
